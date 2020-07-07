@@ -24,7 +24,7 @@ Benifits of using ORM FrameWork:-
 
 8)Now User dont Have to write java class files,ConfigTool will do that for them in just one click;
 
-8) Gui support.
+
 
 Getting Started.(steps to use the Framework)
 =============================================
