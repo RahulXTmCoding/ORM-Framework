@@ -7,7 +7,7 @@ import java.lang.annotation.*;
 
 public @interface ForeignKey
 {
-	Class base();
+	String base();
 	String columnName();
 	String baseColumnName();
 }

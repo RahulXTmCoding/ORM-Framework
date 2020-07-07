@@ -7,6 +7,7 @@ import com.google.gson.*;
 import java.lang.reflect.*;
 import java.io.*;
 import java.math.*;
+import javafx.util.Pair; 
 import com.thinking.machines.sqlDomain.*;
 import com.thinking.machines.beans.*;
 import com.thinking.machines.annotations.*;
@@ -16,10 +17,34 @@ public class TMORMFramework
 {
 public Map<String,Table> tables;
 public Connection c;
+public String dbName;
 private TMORMFramework()
 {
-tables=new HashMap<>();
-getDataBaseMetaData();
+try{
+File f=new File(TMORMFramework.class.getResource(".").getPath()+"../../../../../config/dbConfig.json");
+FileInputStream fis = new FileInputStream(f);
+byte[] data = new byte[(int) f.length()];
+fis.read(data);
+fis.close();
+String str = new String(data, "UTF-8");	
+Gson g=new Gson();
+DbConfigBean dbobj=g.fromJson(str,DbConfigBean.class);
+
+Class.forName(dbobj.getDriver());
+c=DriverManager.getConnection(dbobj.getConnection_url()+dbobj.getDatabase(),dbobj.getUsername(),dbobj.getPassword());
+
+dbName=dbobj.getDatabase();
+
+
+
+tables=DataBaseAnalizer.getDataBaseMetaData(c,dbName,null);
+
+}catch(Exception e)
+{
+	e.printStackTrace();
+}
+
+
 }
 public static TMORMFramework getInstance()
 {
@@ -34,6 +59,10 @@ if(classObject.isAnnotationPresent(TableName.class)==false)
 }
 String tableName=((TableName)classObject.getAnnotation(TableName.class)).value();
 Table t=tables.get(tableName);
+if(t.getTableType().equalsIgnoreCase("view"))
+{
+	throw new ORMException("Save Method Cannot be used on a View,View Name:-"+tableName);
+}
 String insertPreparedStatement=t.getInsertPreparedStatement();
 PreparedStatement ps=c.prepareStatement(insertPreparedStatement,PreparedStatement.RETURN_GENERATED_KEYS);
 Field allfields[]=classObject.getDeclaredFields();
@@ -116,7 +145,10 @@ if(classObject.isAnnotationPresent(TableName.class)==false)
 }
 String tableName=((TableName)classObject.getAnnotation(TableName.class)).value();
 Table t=tables.get(tableName);
-
+if(t.getTableType().equalsIgnoreCase("view"))
+{
+	throw new ORMException("delete Method Cannot be used on a View,View Name:-"+tableName);
+}
 String deletePreparedStatement=t.getDeleteRowPreparedStatement();
 PreparedStatement ps=c.prepareStatement(deletePreparedStatement);
 Field allfields[]=classObject.getDeclaredFields();
@@ -159,6 +191,10 @@ if(classObject.isAnnotationPresent(TableName.class)==false)
 }
 String tableName=((TableName)classObject.getAnnotation(TableName.class)).value();
 Table t=tables.get(tableName);
+if(t.getTableType().equalsIgnoreCase("view"))
+{
+	throw new ORMException(" Update Method Cannot be used on a View,View Name:-"+tableName);
+}
 String updatePreparedStatement=t.getUpdatePreparedStatement();
 PreparedStatement ps=c.prepareStatement(updatePreparedStatement);
 Field allfields[]=classObject.getDeclaredFields();
@@ -218,17 +254,21 @@ i++;
 ps.executeUpdate();
 System.out.println("updated ");
 }
-public void select(Object o)throws Exception
+public void select(Object o)throws ORMException,Exception
 {
 
 Class classObject=o.getClass();
+
 if(classObject.isAnnotationPresent(TableName.class)==false)
 {
 	return;
 }
 String tableName=((TableName)classObject.getAnnotation(TableName.class)).value();
 Table t=tables.get(tableName);
-
+if(t.getTableType().equalsIgnoreCase("view"))
+{
+	throw new ORMException("Single row selection method cannot be used on a View,View Name:-"+tableName);
+}
 String selectRowPreparedStatement=t.getSelectRowPreparedStatement();
 PreparedStatement ps=c.prepareStatement(selectRowPreparedStatement);
 Field allfields[]=classObject.getDeclaredFields();
@@ -277,162 +317,172 @@ ValueSetter.setFieldValue(dt,f,o,resultSet,aName);
 }
 
 }
-public Select select(Class tableClass) throws ORMException,Exception
+
+public void createTable(Class tableC)throws ORMException
 {
-	
-	Select select=new Select(tableClass,c);
-	return select;
+try{
+if(tableC.isAnnotationPresent(TableName.class)==false)
+{
+	throw new ORMException("Cannot Create Table for the following class:"+tableC.getName()+" ,Please apply annotations to Describe Table");
 }
-public void deleteAll(Class tableClass)throws Exception
+String tableName=((TableName)tableC.getAnnotation(TableName.class)).value();
+
+Statement s=c.createStatement();
+try
+{s.executeQuery("select * from "+tableName);
+}catch(Exception e)
 {
-if(tableClass.isAnnotationPresent(TableName.class)==false)
-{
-return;
+	throw new ORMException(e.toString());
 }
+String createStatement="create table "+tableName+"(";
 
-String tableName=((TableName)tableClass.getAnnotation(TableName.class)).value();
-
-Table table=tables.get(tableName);
-String deleteAllPreparedStatement=table.getDeleteAllPreparedStatement();
-PreparedStatement ps=c.prepareStatement(deleteAllPreparedStatement);
-ps.executeUpdate();
-
-}
-
-public List<Object> selectAll(Class tableClass)throws Exception
-{
-if(tableClass.isAnnotationPresent(TableName.class)==false)
-{
-	return null;
-}
-String tableName=((TableName)tableClass.getAnnotation(TableName.class)).value();
-
-Table table=tables.get(tableName);
-String selectAllPreparedStatement=table.getSelectAllPreparedStatement();
-PreparedStatement ps=c.prepareStatement(selectAllPreparedStatement);
-ResultSet resultSet=ps.executeQuery();
-Field[] fields=tableClass.getDeclaredFields();
-Map<String,Field> fieldMap=new HashMap<>();
+Map<String,List<Pair<String,String>>> foreignKeyMap=new HashMap<>();
+Field fields[]=tableC.getDeclaredFields();
+List<Pair<String,String>> l;
+List<String> pks=new LinkedList<>();
+int  i=0;
 for(Field f:fields)
 {
-	if(f.isAnnotationPresent(ColumnName.class))
+if(f.isAnnotationPresent(ColumnName.class)==false ||f.isAnnotationPresent(ColumnType.class)==false)
+{
+	continue;
+}
+
+String columnName=f.getAnnotation(ColumnName.class).value();
+createStatement+=columnName+" ";
+String type=f.getAnnotation(ColumnType.class).value();
+createStatement+=type+" ";
+if(f.isAnnotationPresent(NotNull.class))
+{
+	createStatement+="not null ";
+}
+if(f.isAnnotationPresent(Auto_Increment.class))
+{
+	createStatement+="auto increment ";
+}
+if(f.isAnnotationPresent(Unique.class))
+{
+	createStatement+="Unique ";
+}
+if(f.isAnnotationPresent(com.thinking.machines.annotations.ForeignKey.class))
+{
+	String pName=f.getAnnotation(com.thinking.machines.annotations.ForeignKey.class).base();
+	String cName=f.getAnnotation(com.thinking.machines.annotations.ForeignKey.class).columnName();
+	String pcName=f.getAnnotation(com.thinking.machines.annotations.ForeignKey.class).baseColumnName();
+	if(foreignKeyMap.get(pName)==null)
 	{
+		l=new LinkedList<>();
+		foreignKeyMap.put(pName,l);
 
-		fieldMap.put(f.getAnnotation(ColumnName.class).value(),f);
 	}
-}
-Map<String,Attribute> attributes=table.getAttributeMap();
-List<Object> elements=new LinkedList<>();
-while(resultSet.next())
-{
-Object o=tableClass.newInstance();
-for(Map.Entry<String,Attribute> entry:attributes.entrySet())
-{
-String name=entry.getKey();
-Field f=fieldMap.get(name);
-Attribute a=entry.getValue();
-String dt=a.getDataType();
-ValueSetter.setFieldValue(dt,f,o,resultSet,name);
-}
-
-elements.add(o);
+	l=foreignKeyMap.get(pName);
+    l.add(new Pair<String,String>(cName,pcName));
 
 }
-
-
-return elements;
-}
-
-public void begin() throws Exception
+if(f.isAnnotationPresent(PrimaryKey.class))
 {
-c.setAutoCommit(false);
-}
-public void commit() throws Exception
-{
-c.commit();
-}
-public void rollback() throws Exception
-{
-c.rollback();
+pks.add(columnName);
 }
 
-public ResultSet rawSqlQuery(String sqlStatement) throws ORMException
+if(i<fields.length-1)
 {
-try{
-Statement s=c.createStatement();
-ResultSet rs;
-if(sqlStatement.toUpperCase().startsWith("INSERT")||sqlStatement.toUpperCase().startsWith("DELETE")||sqlStatement.toUpperCase().startsWith("UPDATE"))
-{
-	throw new ORMException("Cannot use rawSqlQuery method for sql Statements like update,insert,delete");
-	}
-else
-{
-	rs=s.executeQuery(sqlStatement);
+createStatement+=",";
 }
-return rs;
-
-}
-catch(Exception e)
-{
-  throw new ORMException(e.toString());
+i++;
 }
 
-}
-public int rawSqlUpdate(String sqlStatement) throws ORMException
+if(pks.size()>0)
 {
-try{
-Statement s=c.createStatement();
-int rowAffected;
-if(sqlStatement.toUpperCase().startsWith("INSERT")||sqlStatement.toUpperCase().startsWith("DELETE")||sqlStatement.toUpperCase().startsWith("UPDATE"))
+createStatement+=",";
+createStatement+= " PRIMARY KEY (";
+for(int j=0;j<pks.size();j++)
 {
-	rowAffected=s.executeUpdate(sqlStatement);
+	createStatement+=pks.get(j);
+	if(j<pks.size()-1)
+	{
+	createStatement+=",";
+     }
 }
-else
+createStatement+=")";
+}
+if(foreignKeyMap.size()>0)
 {
-	throw new ORMException("Cannot use rawSqlUpdate Method for Query type sql Statement");
-}
-
-return rowAffected;
-}
-catch(Exception e)
+	
+for(Map.Entry<String,List<Pair<String,String>>> entry:foreignKeyMap.entrySet())
 {
-  throw new ORMException(e.toString());
+createStatement+=", ";
+String pName=entry.getKey();
+List<Pair<String,String>> ll=entry.getValue();
+String fkString="";
+String ppkString="";
+for(int k=0;k<ll.size();k++)
+{
+	Pair<String,String> p=ll.get(k);
+   if(k!=0)
+   	{
+   	 fkString+=",";
+   	 ppkString+=",";
+   }
+	fkString+=p.getKey();
+	ppkString+=p.getValue();
 }
+createStatement+="FOREIGN KEY ("+fkString+")"+" REFERENCES "+pName+"("+ppkString+")";
+     
 
 }
 
-public void getDataBaseMetaData(){
-try
-{
-File f=new File("../config/dbConfig.json");
-FileInputStream fis = new FileInputStream(f);
-byte[] data = new byte[(int) f.length()];
-fis.read(data);
-fis.close();
-String str = new String(data, "UTF-8");	
-Gson g=new Gson();
-DbConfigBean dbobj=g.fromJson(str,DbConfigBean.class);
 
-Class.forName(dbobj.getDriver());
-c=DriverManager.getConnection(dbobj.getConnection_url()+dbobj.getDatabase(),dbobj.getUsername(),dbobj.getPassword());
+
+}
+
+createStatement+=");";
+
+ s=c.createStatement();
+s.executeUpdate(createStatement);
+
+
+
+addToDs(tableName);
+
+
+
+}catch(SQLException se)
+{
+	throw new ORMException(se.toString());
+}
+}
+
+public Create create(String tName)throws ORMException,Exception
+{
+Create c=null;
+c=new Create(tName,this);
+return c;
+}
+
+
+public void addToDs(String tName)throws SQLException
+{
+
+
 DatabaseMetaData dbmd=c.getMetaData();
 
-ResultSet tablesResultset=dbmd.getTables(dbobj.getDatabase(),null,null,new String[]{"TABLE"});
+ResultSet tablesResultset=dbmd.getTables(dbName,null,tName,new String[]{"TABLE"});
+Table table=null;
 while(tablesResultset.next())
 {
-Table table=new Table();
+table=new Table();
 table.setTableName(tablesResultset.getString("TABLE_NAME"));
 table.setTableType(tablesResultset.getString("TABLE_TYPE"));
 
 
 
-ResultSet PK = dbmd.getPrimaryKeys(dbobj.getDatabase(),null,table.getTableName());
+ResultSet PK = dbmd.getPrimaryKeys(dbName,null,table.getTableName());
 while(PK.next())
 {
 table.addPrimaryKey(PK.getString("COLUMN_NAME"));
 }
 PK.close();
-ResultSet FK = dbmd.getImportedKeys(dbobj.getDatabase(), null,table.getTableName());
+ResultSet FK = dbmd.getImportedKeys(dbName, null,table.getTableName());
 while(FK.next())
 {
 com.thinking.machines.sqlDomain.ForeignKey fk=new com.thinking.machines.sqlDomain.ForeignKey();
@@ -447,7 +497,7 @@ FK.close();
 
 
 
-ResultSet columns=dbmd.getColumns(dbobj.getDatabase(),null,table.getTableName(),null);
+ResultSet columns=dbmd.getColumns(dbName,null,table.getTableName(),null);
 
 
 PreparedStatement cps=c.prepareStatement("show fields from "+table.getTableName());
@@ -498,12 +548,9 @@ tables.put(table.getTableName(),table);
 }
 tablesResultset.close();
 DataTypeValidator dtv=new DataTypeValidator();
-for(Map.Entry<String,Table> tEntry:tables.entrySet())
-{
-	boolean pkVal=false;
-	boolean pkValup=false;
-	List<String> alreadyUserFK=new LinkedList<>();
-	Table table=tEntry.getValue();
+boolean pkVal=false;
+boolean pkValup=false;
+List<String> alreadyUserFK=new LinkedList<>();
 Map<String,Attribute> attributes=table.getAttributeMap();
 int i=1;
 
@@ -517,7 +564,7 @@ insertVal.add(dtv);
 updateVal.add(dtv);
 if(attribute.is_unique())
 {
-	String ps="select * from "+tEntry.getKey()+" where "+attribute.getAttributeName()+"=?;";
+	String ps="select * from "+table.getTableName()+" where "+attribute.getAttributeName()+"=?;";
 	UniqueValidator uv=new UniqueValidator();
 	uv.selectByUniqueValue=ps;
 	uv.c=c;
@@ -628,19 +675,138 @@ table.deleteValidator.c=c;
 
 
 
-
 }
 
 
 
+public Select select(Class tableClass) throws ORMException,Exception
+{
+	
+	Select select=new Select(tableClass,c);
+	return select;
+}
+public void deleteAll(Class tableClass)throws ORMException,Exception
+{
+if(tableClass.isAnnotationPresent(TableName.class)==false)
+{
+return;
+}
+
+String tableName=((TableName)tableClass.getAnnotation(TableName.class)).value();
+
+Table table=tables.get(tableName);
+if(table.getTableType().equalsIgnoreCase("view"))
+{
+	throw new ORMException(" deleteAll  method Cannot be used on a View,View Name:-"+tableName);
+}
+
+String deleteAllPreparedStatement=table.getDeleteAllPreparedStatement();
+PreparedStatement ps=c.prepareStatement(deleteAllPreparedStatement);
+ps.executeUpdate();
+
+}
+
+public List<Object> selectAll(Class tableClass)throws Exception
+{
+if(tableClass.isAnnotationPresent(TableName.class)==false)
+{
+	return null;
+}
+String tableName=((TableName)tableClass.getAnnotation(TableName.class)).value();
+
+Table table=tables.get(tableName);
+String selectAllPreparedStatement=table.getSelectAllPreparedStatement();
+PreparedStatement ps=c.prepareStatement(selectAllPreparedStatement);
+ResultSet resultSet=ps.executeQuery();
+Field[] fields=tableClass.getDeclaredFields();
+Map<String,Field> fieldMap=new HashMap<>();
+for(Field f:fields)
+{
+	if(f.isAnnotationPresent(ColumnName.class))
+	{
+
+		fieldMap.put(f.getAnnotation(ColumnName.class).value(),f);
+	}
+}
+Map<String,Attribute> attributes=table.getAttributeMap();
+List<Object> elements=new LinkedList<>();
+while(resultSet.next())
+{
+Object o=tableClass.newInstance();
+for(Map.Entry<String,Attribute> entry:attributes.entrySet())
+{
+String name=entry.getKey();
+Field f=fieldMap.get(name);
+Attribute a=entry.getValue();
+String dt=a.getDataType();
+ValueSetter.setFieldValue(dt,f,o,resultSet,name);
+}
+
+elements.add(o);
+
+}
+
+
+return elements;
+}
+
+public void begin() throws Exception
+{
+c.setAutoCommit(false);
+}
+public void commit() throws Exception
+{
+c.commit();
+}
+public void rollBack() throws Exception
+{
+c.rollback();
+}
+
+public ResultSet rawSqlQuery(String sqlStatement) throws ORMException
+{
+try{
+Statement s=c.createStatement();
+ResultSet rs;
+if(sqlStatement.toUpperCase().startsWith("INSERT")||sqlStatement.toUpperCase().startsWith("DELETE")||sqlStatement.toUpperCase().startsWith("UPDATE"))
+{
+	throw new ORMException("Cannot use rawSqlQuery method for sql Statements like update,insert,delete");
+	}
+else
+{
+	rs=s.executeQuery(sqlStatement);
+}
+return rs;
 
 }
 catch(Exception e)
 {
-e.printStackTrace();
+  throw new ORMException(e.toString());
 }
 
-	
 }
+public int rawSqlUpdate(String sqlStatement) throws ORMException
+{
+try{
+Statement s=c.createStatement();
+int rowAffected;
+if(sqlStatement.toUpperCase().startsWith("INSERT")||sqlStatement.toUpperCase().startsWith("DELETE")||sqlStatement.toUpperCase().startsWith("UPDATE"))
+{
+	rowAffected=s.executeUpdate(sqlStatement);
+}
+else
+{
+	throw new ORMException("Cannot use rawSqlUpdate Method for Query type sql Statement");
+}
+
+return rowAffected;
+}
+catch(Exception e)
+{
+  throw new ORMException(e.toString());
+}
+
+}
+
 
 }
