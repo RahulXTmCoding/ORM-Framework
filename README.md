@@ -18,15 +18,27 @@ Benifits of using ORM FrameWork:-
 
 5)Multiple Way to perform single type of operations to give user the power to do more.
 
+6)[update] Now user can use the ConfigTool to configure dataBase information.
+
+7)User can also use this Tool to Create equivalent Java Classes for tables in dataBase.
+
+8)Now User dont Have to write java class files,ConfigTool will do that for them in just one click;
+
+8) Gui support.
+
 Getting Started.(steps to use the Framework)
 =============================================
 1)Download the this repository.
 
 2)place it anywhere you want.
 
-3)Go to congig folder and Modify dbConfig.json file and fill all the details related to the dataBase and sql.
+3)Run the configTool from classes/tools.
 
-4)File can be modified as:-
+Use This Tool to configure file according to your DataBase.
+
+![alt text](https://github.com/RahulXTmCoding/images/blob/master/db.jpg)
+
+4)Just change Details in above tool and click save ,will create a file like this:-
 ``` markdow
      {
           "driver":"com.mysql.cj.jdbc.Driver",
@@ -230,3 +242,17 @@ Second Method to create table is:-
 ```
 
 Lastly dont forget to give path to framework lib because it contains some files on which framework is dependent on;
+
+
+Some More Images:-
+------------------
+
+
+
+![alt text](https://github.com/RahulXTmCoding/images/blob/master/Screenshot%20from%202020-07-07%2023-41-35.png)
+
+
+
+
+
+![alt text](https://github.com/RahulXTmCoding/images/blob/master/Screenshot%20from%202020-07-07%2023-41-40.png)
