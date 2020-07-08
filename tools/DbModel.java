@@ -1,4 +1,4 @@
-package tools;
+
 import javax.swing.table.*;
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
