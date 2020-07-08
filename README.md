@@ -3,7 +3,7 @@
 Java-based Framework for Object Relational Mapping. The framework sets you SQL free. It does all the SQL operations 'under the hood' without letting you know.
 User Just Create a object of TMORMframework and all the work can be done using this object.User can execute most of the sql Queries without even knowing any sql.
 
-This Framework Free the user from all the work of managing database and learning sql Update/Query Statements. 
+This Framework Free the user from all the work of managing database and learning sql Update/Query Statements. This Orm Framework is Specially for Mysql only.
 
 Benifits of using ORM FrameWork:-
 ======================================
@@ -32,7 +32,7 @@ Getting Started.(steps to use the Framework)
 
 2)place it anywhere you want.
 
-3)Run the configTool from classes/tools.
+3)Run the configTool from tools.
 
 Use This Tool to configure file according to your DataBase.
 
